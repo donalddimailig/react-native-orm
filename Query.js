@@ -3,15 +3,18 @@ import SQLite from 'react-native-sqlite-storage';
 import { unserialize } from './utils/serializer';
 import { formatTimestamp } from './utils/timestamp';
 import { Subquery } from './Subquery';
+import { getTableFields } from 'react-native-orm/utils/table';
+import { getFilteredModelFields } from 'react-native-orm/utils/fields';
 
 // SQLite configuration
 SQLite.DEBUG(false);
 SQLite.enablePromise(true);
 
-let _databaseInstance   = null;
+let _databaseInstance   = new WeakMap();
 
 let _tableName          = new WeakMap();
 let _tableFields        = new WeakMap();
+let _primaryKey         = new WeakMap();
 let _whereClause        = new WeakMap();
 let _whereClauseValues  = new WeakMap();    
 let _limitNum           = new WeakMap();
@@ -19,11 +22,26 @@ let _keyValue           = new WeakMap();
 let _subqueryInstance   = new WeakMap();
 let _orderByClause      = new WeakMap();
 let _distinctClause     = new WeakMap();
+let _excludedTimestamps = new WeakMap();
 
 export class Query {
     constructor(props = {}) {
-        _tableName.set(this, '');
-        _tableFields.set(this, {});
+        this.setDatabaseInstance(props.dbInstance);
+
+        _tableName.set(this, props.tableName);
+        _tableFields.set(
+            this,
+            props.hasOwnProperty('assignableFields')
+            && (props.assignableFields).length > 0
+                ? props.assignableFields
+                : {
+                    ...props.tableFields,
+                    created_at: 'string',
+                    updated_at: 'string',
+                    deleted_at: 'string'
+                }
+        );
+        _primaryKey.set(this, props.key || 'uuid');
         _whereClause.set(this, '');
         _whereClauseValues.set(this, []);    
         _limitNum.set(this, 0);
@@ -31,6 +49,13 @@ export class Query {
         _subqueryInstance.set(this, new Subquery());
         _orderByClause.set(this, '');
         _distinctClause.set(this, '');
+        _excludedTimestamps.set(
+            this,
+            props.hasOwnProperty('excludedTimestamps')
+            && (props.excludedTimestamps).length > 0
+                ? props.excludedTimestamps
+                : []
+        );
 
         this.setDatabaseInstance = this.setDatabaseInstance.bind(this);
         this.setKeyValue = this.setKeyValue.bind(this);
@@ -55,8 +80,14 @@ export class Query {
      * @param {Object} dbInstance
      */
     setDatabaseInstance(dbInstance) {
-        if (!_databaseInstance) {
-            _databaseInstance = dbInstance;
+        if (
+            !(_databaseInstance.get(this))
+            || (
+                _databaseInstance.get(this)
+                && (_databaseInstance.get(this)).dbname !== (dbInstance ? dbInstance.dbname : null) // Change db instance
+            )
+        ) {
+            _databaseInstance.set(this, dbInstance);
         }
     }
 
@@ -289,12 +320,18 @@ export class Query {
      */
     get() {
         return new Promise(async (resolve, reject) => {
-            const fields = Object.keys(_tableFields.get(this)).join(', ');
+            const savedTableFields = (await getTableFields(_databaseInstance.get(this), _tableName.get(this))).data;
+            const filteredFields = getFilteredModelFields(
+                savedTableFields,
+                _tableFields.get(this),
+                _excludedTimestamps.get(this)
+            );
+            const fields = Object.keys(filteredFields).join(', ');
             const limitQueryFormat = _limitNum.get(this) > 0
                 ? `LIMIT ${ _limitNum.get(this) }`
                 : '';
 
-            const sqlQuery = await _databaseInstance.executeSql('SELECT '
+            const sqlQuery = await (_databaseInstance.get(this)).executeSql('SELECT '
                 + (_distinctClause.get(this) ? `${ _distinctClause.get(this) } ` : '')
                 + (_distinctClause.get(this) ? 'FROM ' : fields + ' FROM ') 
                 + _tableName.get(this) + ' '
@@ -325,7 +362,7 @@ export class Query {
             return resolve({
                 statusCode: 200,
                 message: 'Successful query',
-                data: unserialize(data, _tableFields.get(this))
+                data: unserialize(data, filteredFields)
             });
         });
     }
@@ -333,7 +370,7 @@ export class Query {
     insert(data = []) {
         return new Promise(async (resolve, reject) => {
             try {
-                await _databaseInstance.transaction(async (tx) => {
+                await (_databaseInstance.get(this)).transaction(async (tx) => {
                     let length = data.length;
                     let value = {};
 
@@ -395,11 +432,18 @@ export class Query {
     update(value) {
         return new Promise(async (resolve, reject) => {
             try {
-                await _databaseInstance.transaction(async (tx) => {
+                const savedTableFields = (await getTableFields(_databaseInstance.get(this), _tableName.get(this))).data;
+                const filteredFields = getFilteredModelFields(
+                    savedTableFields,
+                    _tableFields.get(this),
+                    _excludedTimestamps.get(this)
+                );
+
+                await (_databaseInstance.get(this)).transaction(async (tx) => {
                     let tableFieldUpdates = [];
                     let dataValues = [];
 
-                    Object.keys(_tableFields.get(this)).forEach(key => {
+                    Object.keys(filteredFields).forEach(key => {
                         tableFieldUpdates.push(`${ key } = ?`);
                         
                         // Create/update default timestamp (updated_at only)
@@ -409,9 +453,9 @@ export class Query {
                     const updateQueryFormat = 'UPDATE ' + _tableName.get(this)
                         + ' SET '
                         + tableFieldUpdates.join(', ')
-                        + ' WHERE uuid = ?;';
+                        + ` WHERE ${ _primaryKey.get(this) } = ?;`;
 
-                    await tx.executeSql(updateQueryFormat, dataValues.concat([ (_keyValue.get(this)).uuid ]));
+                    await tx.executeSql(updateQueryFormat, dataValues.concat([ (_keyValue.get(this))[ _primaryKey.get(this) ] ]));
 
                     return resolve({
                         statusCode: 200,
@@ -439,11 +483,18 @@ export class Query {
     delete() {
         return new Promise(async (resolve, reject) => {
             try {
-                await _databaseInstance.transaction(async (tx) => {
-                    const deleteQueryFormat = 'DELETE FROM ' + _tableName.get(this)
-                        + ' WHERE uuid = ?';
+                const savedTableFields = (await getTableFields(_databaseInstance.get(this), _tableName.get(this))).data;
+                const filteredFields = getFilteredModelFields(
+                    savedTableFields,
+                    _tableFields.get(this),
+                    _excludedTimestamps.get(this)
+                );
 
-                    await tx.executeSql(deleteQueryFormat, [ (_keyValue.get(this)).uuid ]);
+                await (_databaseInstance.get(this)).transaction(async (tx) => {
+                    const deleteQueryFormat = 'DELETE FROM ' + _tableName.get(this)
+                        + ` WHERE ${ _primaryKey.get(this) } = ?`;
+
+                    await tx.executeSql(deleteQueryFormat, [ (_keyValue.get(this))[ _primaryKey.get(this) ] ]);
 
                     return resolve({
                         statusCode: 200,
@@ -469,9 +520,13 @@ export class Query {
     count() {
         return new Promise(async (resolve, reject) => {
             try {
-                const selectCountQuery = `SELECT COUNT(*) AS count FROM ${ _tableName.get(this) }`;
-                const queryResult = await _databaseInstance.executeSql(selectCountQuery);
+                const selectCountQuery = `SELECT COUNT(*) AS count FROM ${ _tableName.get(this) } ${ _whereClause.get(this) };`;
+                const queryResult = await (_databaseInstance.get(this)).executeSql(selectCountQuery, _whereClauseValues.get(this));
                 
+                // Reset values
+                _whereClause.set(this, '');
+                _whereClauseValues.set(this, []);
+
                 return resolve({
                     statusCode: 200,
                     message: 'Query executed successfully.',

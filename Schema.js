@@ -1,12 +1,12 @@
 import SQLite from 'react-native-sqlite-storage';
 
 import { toSqlField } from './utils/fields';
-
-let _databaseName       = new WeakMap();
-let _version            = new WeakMap();
-let _description        = new WeakMap();
-let _size               = new WeakMap();
-let _databaseInstance   = new WeakMap();
+import {
+    createMigrationTable,
+    createMigrationTableRecord
+} from 'react-native-orm/utils/migration';
+import { changeTableRecord } from 'react-native-orm/utils/table';
+import { isEmpty } from 'react-native-orm/utils/checker';
 
 export class Schema {
     constructor(props = {}) {
@@ -19,11 +19,23 @@ export class Schema {
         }
 
         // Database configuration
-        _databaseName.set(this, props.databaseName);
-        _version.set(this, props.version || '1.0');
-        _description.set(this, props.description || `${ _databaseName.get(this) }; Version: ${ _version.get(this) }`);
-        _size.set(this, props.size || -1);
-        _databaseInstance.set(this, null);
+        this._databaseName      = props.databaseName;
+        this._databaseInstance  = null;
+        this._isPrepopulated    = props.isPrepopulated || false;
+        this._location          = props.location || 'default';
+
+        if (
+            props.hasOwnProperty('prepDbLocation')
+            && !props.hasOwnProperty('isPrepopulated')
+        ) {
+            throw new Error('"isPrepopulated" attribute is required.');
+        }
+
+        if (props.isPrepopulated) {
+            this._prepDbLocation = !props.hasOwnProperty('prepDbLocation')
+                                        ? 1 // Default location (www)
+                                        : props.prepDbLocation;
+        }
 
         this.open = this.open.bind(this);
         this.createTable = this.createTable.bind(this);
@@ -35,13 +47,20 @@ export class Schema {
     async open() {
         try {
             const openDbRes = await SQLite.openDatabase(
-                _databaseName.get(this),
-                _version.get(this),
-                _description.get(this),
-                _size.get(this)
+                this._isPrepopulated
+                    ? {
+                        name:               this._databaseName,
+                        createFromLocation: this._prepDbLocation
+                    }
+                    : {
+                        name:       this._databaseName,
+                        location:   this._location
+                    }
             );
 
-            _databaseInstance.set(this, openDbRes);
+            this._databaseInstance = openDbRes;
+
+            await createMigrationTable(this._databaseInstance);
 
             return Promise.resolve({
                 statusCode: 200,
@@ -86,20 +105,54 @@ export class Schema {
             });
 
             try {
-                await (_databaseInstance.get(this)).transaction(async (tx) => {
-                    try {
+                let tableInfoRes = '';
+
+                await (this._databaseInstance).transaction(async (tx) => {
+                    // Check table info (If existing)
+                    tableInfoRes = await tx.executeSql(
+                        `PRAGMA table_info('${ model.getModelName() }')`
+                    );
+                });
+
+                await (this._databaseInstance).transaction(async (tx) => {
+                    if (tableInfoRes[1].rows.length === 0) {
                         // Create table
                         await tx.executeSql('CREATE TABLE IF NOT EXISTS '
                             + model.getModelName()
                             + '(' + sqlFieldFormat + ');'
                         );
-                    } catch (err) {
-                        console.log('Table creation error:', err);
 
-                        return reject({
-                            statusCode: 500,
-                            message: 'Table creation error.'
-                        });
+                        // Create migration record ("createTable" type)
+                        await createMigrationTableRecord(
+                            this._databaseInstance,
+                            model.getModelName(),
+                            1,
+                            'createTable',
+                            `Created new table (Columns: ${ Object.keys(fields).join(', ') })`
+                        );
+                    } else if (
+                        typeof model.addColumns === 'function'
+                        && !isEmpty(model.addColumns())
+                        // && !isEmpty(model.addColumns()).version
+                        // && !isEmpty(model.addColumns()).fields
+                    ) {
+                        // Add new columns
+
+                        model.addColumns().forEach(async(addedColumnDetails) => {
+                            if(
+                                !isEmpty(addedColumnDetails).version
+                                && !isEmpty(addedColumnDetails).fields
+                            ){
+                                // console.log("add columns", addedColumnDetails)
+                                await changeTableRecord(
+                                    this._databaseInstance,
+                                    model.getModelName(),
+                                    addedColumnDetails,
+                                    'addColumns'
+                                );
+                            }
+                        })
+
                     }
                 });
             } catch (err) {
