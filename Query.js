@@ -16,7 +16,7 @@ let _tableName          = new WeakMap();
 let _tableFields        = new WeakMap();
 let _primaryKey         = new WeakMap();
 let _whereClause        = new WeakMap();
-let _whereClauseValues  = new WeakMap();    
+let _whereClauseValues  = new WeakMap();
 let _limitNum           = new WeakMap();
 let _keyValue           = new WeakMap();
 let _subqueryInstance   = new WeakMap();
@@ -43,7 +43,7 @@ export class Query {
         );
         _primaryKey.set(this, props.key || 'uuid');
         _whereClause.set(this, '');
-        _whereClauseValues.set(this, []);    
+        _whereClauseValues.set(this, []);
         _limitNum.set(this, 0);
         _keyValue.set(this, {});
         _subqueryInstance.set(this, new Subquery());
@@ -70,13 +70,14 @@ export class Query {
         this.insert = this.insert.bind(this);
         this.update = this.update.bind(this);
         this.delete = this.delete.bind(this);
+        this.deleteNull = this.deleteNull.bind(this);
         this.count = this.count.bind(this);
         this.distinct = this.distinct.bind(this);
     }
 
     /**
      * Sets database instance
-     * 
+     *
      * @param {Object} dbInstance
      */
     setDatabaseInstance(dbInstance) {
@@ -93,7 +94,7 @@ export class Query {
 
     /**
      * Sets key-value pair
-     * 
+     *
      * @param {string} key
      * @param {string} value
      */
@@ -107,7 +108,7 @@ export class Query {
 
     /**
      * Gets key-value pair
-     * 
+     *
      */
     getKeyValue() {
         return _keyValue.get(this);
@@ -115,7 +116,7 @@ export class Query {
 
     /**
      * Set Table Name
-     * 
+     *
      * @param {string} tableName
      */
     tableName(tableName) {
@@ -126,7 +127,7 @@ export class Query {
 
     /**
      * Set Table Fields
-     * 
+     *
      * @param {Array} fields
      */
     tableFields(fields) {
@@ -142,7 +143,7 @@ export class Query {
 
     /**
      * Where clause
-     * 
+     *
      * @param {string|Function} column
      * @param {string} operator
      * @param {*} value
@@ -183,7 +184,7 @@ export class Query {
 
     /**
      * Where clause (AND)
-     * 
+     *
      * @param {string} column
      * @param {string} operator
      * @param {*} value
@@ -203,7 +204,7 @@ export class Query {
 
     /**
      * Where clause (OR)
-     * 
+     *
      * @param {string|Function} column
      * @param {string} operator
      * @param {*} value
@@ -239,7 +240,7 @@ export class Query {
 
     /**
      * Where clause value is null
-     * 
+     *
      * @param {string} column
      */
     whereNull(column) {
@@ -250,7 +251,7 @@ export class Query {
 
     /**
      * Where clause value is null (AND)
-     * 
+     *
      * @param {string} column
      */
     andWhereNull(column) {
@@ -261,7 +262,7 @@ export class Query {
 
     /**
      * Where clause value is null (OR)
-     * 
+     *
      * @param {string} column
      */
     orWhereNull(column) {
@@ -272,7 +273,7 @@ export class Query {
 
     /**
      * Where clause value is not null
-     * 
+     *
      * @param {string} column
      */
     whereNotNull(column) {
@@ -283,7 +284,7 @@ export class Query {
 
     /**
      * Where clause value is not null (AND)
-     * 
+     *
      * @param {string} column
      */
     andWhereNotNull(column) {
@@ -294,7 +295,7 @@ export class Query {
 
     /**
      * Where clause value is not null
-     * 
+     *
      * @param {string} column
      */
     orWhereNotNull(column) {
@@ -305,18 +306,18 @@ export class Query {
 
     /**
      * Limits # of query result
-     * 
+     *
      * @param {Number} limitNum
      */
     limit(limitNum = 1) {
         _limitNum.set(this, limitNum);
-        
+
         return this;
     }
 
     /**
      * Execute query (Get)
-     * 
+     *
      */
     get() {
         return new Promise(async (resolve, reject) => {
@@ -333,7 +334,7 @@ export class Query {
 
             const sqlQuery = await (_databaseInstance.get(this)).executeSql('SELECT '
                 + (_distinctClause.get(this) ? `${ _distinctClause.get(this) } ` : '')
-                + (_distinctClause.get(this) ? 'FROM ' : fields + ' FROM ') 
+                + (_distinctClause.get(this) ? 'FROM ' : fields + ' FROM ')
                 + _tableName.get(this) + ' '
                 + _whereClause.get(this) + ' '
                 + (_orderByClause.get(this) ? `${ _orderByClause.get(this) } ` : '')
@@ -399,7 +400,7 @@ export class Query {
                             tx.executeSql(insertQueryFormat, values);
                         } catch (err) {
                             console.log('Data insertion error:', err);
-    
+
                             return reject({
                                 statusCode: 500,
                                 message: 'Data insertion error.'
@@ -426,7 +427,7 @@ export class Query {
 
     /**
      * Updates data of the specified Model
-     * 
+     *
      * @param {Object} value
      */
     update(value) {
@@ -445,9 +446,9 @@ export class Query {
 
                     Object.keys(filteredFields).forEach(key => {
                         tableFieldUpdates.push(`${ key } = ?`);
-                        
+
                         // Create/update default timestamp (updated_at only)
-                        dataValues.push(key === 'updated_at' ? formatTimestamp(new Date()) : value[key]);   
+                        dataValues.push(key === 'updated_at' ? formatTimestamp(new Date()) : value[key]);
                     });
 
                     const updateQueryFormat = 'UPDATE ' + _tableName.get(this)
@@ -476,7 +477,7 @@ export class Query {
 
     /**
      * Removes data of the specified Model
-     * 
+     *
      * TODO:
      * Soft delete record by default
      */
@@ -512,17 +513,56 @@ export class Query {
             }
         });
     }
-    
+
+    /**
+     * Removes null data of the specified Model
+     *
+     * TODO:
+     * Soft delete record by default
+     */
+    deleteNull() {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const savedTableFields = (await getTableFields(_databaseInstance.get(this), _tableName.get(this))).data;
+                const filteredFields = getFilteredModelFields(
+                    savedTableFields,
+                    _tableFields.get(this),
+                    _excludedTimestamps.get(this)
+                );
+
+                await (_databaseInstance.get(this)).transaction(async (tx) => {
+                    const deleteQueryFormat = 'DELETE FROM ' + _tableName.get(this)
+                        + ' WHERE uuid IS NULL';
+
+                    await tx.executeSql(deleteQueryFormat, []);
+
+                    return resolve({
+                        statusCode: 200,
+                        message: 'Data successfully deleted.',
+                        data: {}
+                    });
+                });
+            } catch (err) {
+                console.log('Query.delete() error:', err);
+
+                return reject({
+                    statusCode: 500,
+                    message: 'An error occurred.'
+                });
+            }
+        });
+    }
+
     /**
      * Counts number of records in a table
-     * 
+     *
      */
     count() {
         return new Promise(async (resolve, reject) => {
             try {
                 const selectCountQuery = `SELECT COUNT(*) AS count FROM ${ _tableName.get(this) } ${ _whereClause.get(this) };`;
                 const queryResult = await (_databaseInstance.get(this)).executeSql(selectCountQuery, _whereClauseValues.get(this));
-                
+
                 // Reset values
                 _whereClause.set(this, '');
                 _whereClauseValues.set(this, []);
@@ -545,9 +585,9 @@ export class Query {
 
     /**
      * Sorts query result by a given column.
-     * 
-     * @param {String} column 
-     * @param {String} sort 
+     *
+     * @param {String} column
+     * @param {String} sort
      */
     orderBy(column, sort = 'asc') {
         _orderByClause.set(this, `ORDER BY ${ column } ${ sort.toUpperCase() }`);
@@ -557,8 +597,8 @@ export class Query {
 
     /**
      * Removes duplicate rows in a record
-     * 
-     * @param {String|Array} column 
+     *
+     * @param {String|Array} column
      */
     distinct(column = []) {
         _distinctClause.set(this, `DISTINCT ${ Array.isArray(column) ? column.join(', ') : column }`);
