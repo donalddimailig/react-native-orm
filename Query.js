@@ -71,6 +71,7 @@ export class Query {
         this.update = this.update.bind(this);
         this.delete = this.delete.bind(this);
         this.deleteNull = this.deleteNull.bind(this);
+        this.deleteAll = this.deleteAll.bind(this);
         this.count = this.count.bind(this);
         this.distinct = this.distinct.bind(this);
     }
@@ -518,7 +519,7 @@ export class Query {
      * Removes null data of the specified Model
      *
      * TODO:
-     * Soft delete record by default
+     * Hard delete record by default
      */
     deleteNull() {
         return new Promise(async (resolve, reject) => {
@@ -552,6 +553,45 @@ export class Query {
             }
         });
     }
+
+    /**
+     * Removes all data of the specified Model
+     *
+     * TODO:
+     * Hard delete record by default
+     */
+    deleteAll() {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const savedTableFields = (await getTableFields(_databaseInstance.get(this), _tableName.get(this))).data;
+                const filteredFields = getFilteredModelFields(
+                    savedTableFields,
+                    _tableFields.get(this),
+                    _excludedTimestamps.get(this)
+                );
+
+                await (_databaseInstance.get(this)).transaction(async (tx) => {
+                    const deleteQueryFormat = 'DELETE FROM ' + _tableName.get(this);
+
+                    await tx.executeSql(deleteQueryFormat, []);
+
+                    return resolve({
+                        statusCode: 200,
+                        message: 'Data successfully deleted.',
+                        data: {}
+                    });
+                });
+            } catch (err) {
+                console.log('Query.delete() error:', err);
+
+                return reject({
+                    statusCode: 500,
+                    message: 'An error occurred.'
+                });
+            }
+        });
+    }
+
 
     /**
      * Counts number of records in a table
