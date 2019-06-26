@@ -522,7 +522,7 @@ export class Query {
      * TODO:
      * Hard delete record by default
      */
-    deleteNull() {
+    deleteNull(field) {
         return new Promise(async (resolve, reject) => {
             try {
                 const savedTableFields = (await getTableFields(_databaseInstance.get(this), _tableName.get(this))).data;
@@ -534,7 +534,7 @@ export class Query {
 
                 await (_databaseInstance.get(this)).transaction(async (tx) => {
                     const deleteQueryFormat = 'DELETE FROM ' + _tableName.get(this)
-                        + ' WHERE uuid IS NULL';
+                        + ' WHERE ' + field +' IS NULL';
 
                     await tx.executeSql(deleteQueryFormat, []);
 
