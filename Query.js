@@ -69,6 +69,7 @@ export class Query {
         this.get = this.get.bind(this);
         this.insert = this.insert.bind(this);
         this.update = this.update.bind(this);
+        this.updateV2 = this.updateV2.bind(this);
         this.delete = this.delete.bind(this);
         this.deleteNull = this.deleteNull.bind(this);
         this.deleteAll = this.deleteAll.bind(this);
@@ -591,6 +592,42 @@ export class Query {
             }
         });
     }
+
+    /**
+     * UPDATE/CHANGE single field
+     */
+    updateV2(field, oldValue, newValue) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const savedTableFields = (await getTableFields(_databaseInstance.get(this), _tableName.get(this))).data;
+                const filteredFields = getFilteredModelFields(
+                    savedTableFields,
+                    _tableFields.get(this),
+                    _excludedTimestamps.get(this)
+                );
+
+                await (_databaseInstance.get(this)).transaction(async (tx) => {
+                    const updateQueryFormat = 'UPDATE ' + _tableName.get(this) + ' SET ' + field + ' = ' + newValue + ' WHERE ' + field + ' = ' + oldValue ;
+
+                    await tx.executeSql(updateQueryFormat, []);
+
+                    return resolve({
+                        statusCode: 200,
+                        message: 'Database successfully updated.',
+                        data: {}
+                    });
+                });
+            } catch (err) {
+                console.log('Query.updateV2() error:', err);
+
+                return reject({
+                    statusCode: 500,
+                    message: 'An error occurred.'
+                });
+            }
+        });
+    }
+
 
 
     /**
