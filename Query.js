@@ -607,7 +607,7 @@ export class Query {
                 );
 
                 await (_databaseInstance.get(this)).transaction(async (tx) => {
-                    const updateQueryFormat = 'UPDATE ' + _tableName.get(this) ' SET ' + field + ' = ' + newValue + ' WHERE ' + field + ' = ' + oldValue ;
+                    const updateQueryFormat = 'UPDATE ' + _tableName.get(this) + ' SET ' + field + ' = ' + newValue + ' WHERE ' + field + ' = ' + oldValue ;
 
                     await tx.executeSql(updateQueryFormat, []);
 
